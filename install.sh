@@ -28,10 +28,9 @@ mv -f "$TMP/VERSION" "$DEST/VERSION"
 APP=/Applications/SwiftBar.app
 [ -d "$APP" ] || APP="$HOME/Applications/SwiftBar.app"
 if [ ! -d "$APP" ]; then
-  URL=$(curl -fsSL https://api.github.com/repos/swiftbar/SwiftBar/releases/latest |
-    jq -r '[.assets[] | select(.name | endswith(".zip"))][0].browser_download_url // empty')
-  [ -n "$URL" ] || die "SwiftBar 내려받기 주소를 찾지 못했습니다. https://swiftbar.app 에서 직접 설치한 뒤 다시 실행하세요."
-  curl -fsSL "$URL" -o "$TMP/SwiftBar.zip"
+  # 고정 주소: api.github.com 은 IP당 시간 60회 한도라 회사망 등에서 403이 난다. SwiftBar 는 설치 뒤 스스로 업데이트한다
+  URL=https://github.com/swiftbar/SwiftBar/releases/download/v2.1.1/SwiftBar.v2.1.1.b597.zip
+  curl -fsSL "$URL" -o "$TMP/SwiftBar.zip" || die "SwiftBar를 받지 못했습니다. https://swiftbar.app 에서 직접 설치한 뒤 다시 실행하세요."
   ditto -x -k "$TMP/SwiftBar.zip" "$TMP/sb"
   [ -d "$TMP/sb/SwiftBar.app" ] || die "받은 SwiftBar 파일이 올바르지 않습니다."
   if [ -w /Applications ]; then APP=/Applications/SwiftBar.app; else mkdir -p "$HOME/Applications"; fi
