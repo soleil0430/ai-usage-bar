@@ -10,8 +10,10 @@
 # <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 # <swiftbar.hideSwiftBar>true</swiftbar.hideSwiftBar>
 PATH=/usr/bin:/bin
-DIR=$(cd "$(dirname "$0")" && pwd)
-SELF="$DIR/$(basename "$0")"
+# 다른 플러그인 폴더에 바로가기(심볼릭 링크)로 걸려 있어도 도우미와 설정을 원래 위치에서 찾는다
+SRC=$(readlink "$0" || echo "$0")
+DIR=$(cd "$(dirname "$SRC")" && pwd)
+SELF="$DIR/$(basename "$SRC")"
 CONF="$DIR/../enabled"   # 켜진 서비스 이름을 공백으로 나열한 한 줄. 없으면 전부 켜짐
 CACHE="$DIR/../.cache"   # 서비스별: <이름> = 마지막 조회 값, <이름>.hdr = 마지막 응답 헤더, <이름>.wait = 다시 조회해도 되는 시각
 ALL="claude codex cursor"

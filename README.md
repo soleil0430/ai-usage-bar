@@ -19,30 +19,35 @@
 - 토큰을 갱신하지 않습니다. `?`가 계속 뜨면 해당 도구(Claude Code, Codex, Cursor)를 한 번 실행해 로그인 상태를 갱신하세요.
 - 서비스 아이콘은 이 저장소에 들어 있지 않습니다. 맥에 설치된 앱(`/Applications/Claude.app`, `ChatGPT.app`, `Cursor.app`)의 아이콘을 실행 때 읽어 씁니다. 앱이 없으면 기본 아이콘이 나옵니다.
 
-## 필요한 것
-
-- macOS (macOS 15에서 확인)
-- [SwiftBar](https://github.com/swiftbar/SwiftBar)
-- Xcode 명령줄 도구 (`swiftc`. 아이콘 도우미를 한 번 컴파일할 때만 필요)
-- `jq`, `sqlite3`, `curl` (macOS 15에는 기본으로 들어 있습니다)
-
 ## 설치
 
-```bash
-brew install --cask swiftbar
-```
+터미널에 아래 한 줄을 붙여 넣으면 됩니다.
 
 ```bash
-git clone https://github.com/soleil0430/ai-usage-bar.git ~/ai-usage-bar
+curl -fsSL https://raw.githubusercontent.com/soleil0430/ai-usage-bar/main/install.sh | bash
 ```
 
-```bash
-swiftc -O ~/ai-usage-bar/plugins/.baticon.swift -o ~/ai-usage-bar/plugins/.baticon
-```
+[설치 스크립트](install.sh)가 하는 일:
 
-SwiftBar를 실행하고 플러그인 폴더로 `~/ai-usage-bar/plugins`를 고릅니다. 이미 다른 폴더를 쓰고 있다면 SwiftBar 설정에서 바꾸면 됩니다.
+1. SwiftBar가 없으면 Homebrew로 설치합니다.
+2. 이 저장소를 `~/ai-usage-bar`에 내려받습니다. 이미 있으면 최신으로 갱신합니다.
+3. 아이콘 도우미를 컴파일합니다.
+4. SwiftBar에 연결합니다. SwiftBar를 처음 쓰면 플러그인 폴더를 `~/ai-usage-bar/plugins`로 지정하고, 이미 쓰는 플러그인 폴더가 있으면 설정은 그대로 두고 그 폴더에 바로가기만 넣습니다.
+5. SwiftBar를 실행합니다.
 
-macOS가 키체인 접근을 물으면 "항상 허용"을 눌러야 매번 다시 묻지 않습니다.
+설치 뒤에 할 일:
+
+- macOS가 키체인 접근을 물으면 "항상 허용"을 누릅니다.
+- 재부팅 후에도 보이게 하려면 SwiftBar 설정에서 "Launch at Login"을 켭니다.
+
+**갱신**은 같은 명령을 다시 실행하면 됩니다. **삭제**는 `~/ai-usage-bar` 폴더를 지우면 됩니다(바로가기를 넣은 경우 그 바로가기도 지웁니다).
+
+### 필요한 것
+
+- macOS (macOS 15에서 확인)
+- [Homebrew](https://brew.sh)
+- Xcode 명령줄 도구 (`xcode-select --install`. 아이콘 도우미 컴파일에 필요)
+- Claude Code, Codex, Cursor 중 쓰는 도구에 로그인돼 있어야 그 서비스의 한도가 나옵니다.
 
 ## 설정
 
