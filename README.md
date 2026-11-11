@@ -76,7 +76,6 @@ Homebrew, git, Xcode 도구는 필요 없습니다. 내용은 [install.sh](insta
 |---|---|
 | `plugins/ai-usage.1m.sh` | 서비스 조회, 설정 읽기, 메뉴 출력, 체크박스 처리 |
 | `plugins/.baticon.swift` | 아이콘과 배터리를 그림 한 장으로 그리는 도우미 |
-
 | `install.sh` | 설치. 설치 파일(`.pkg`)도 이 스크립트를 실행합니다 |
 | `release.sh` | 배포. 도우미 컴파일, 배포 묶음과 설치 파일 제작, GitHub 릴리스 등록 |
 | `VERSION` | 현재 버전 |
