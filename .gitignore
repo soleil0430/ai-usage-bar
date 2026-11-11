@@ -2,5 +2,6 @@
 .cache/
 enabled
 plugins/.baticon
-SPEC.md
+SPEC*.md
 .DS_Store
+dist/

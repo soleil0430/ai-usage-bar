@@ -17,9 +17,31 @@ SELF="$DIR/$(basename "$SRC")"
 CONF="$DIR/../enabled"   # 켜진 서비스 이름을 공백으로 나열한 한 줄. 없으면 전부 켜짐
 CACHE="$DIR/../.cache"   # 서비스별: <이름> = 마지막 조회 값, <이름>.hdr = 마지막 응답 헤더, <이름>.wait = 다시 조회해도 되는 시각
 ALL="claude codex cursor"
+REL=${AI_USAGE_REL:-https://github.com/soleil0430/ai-usage-bar/releases/latest/download}   # AI_USAGE_REL: 시험용
 mkdir -p "$CACHE"
 ENABLED=$(cat "$CONF" 2>/dev/null || echo "$ALL")
 on() { case " $ENABLED " in *" $1 "*) return 0 ;; esac; return 1; }
+
+# 자동 업데이트: 최신 릴리스의 버전이 설치된 것과 다르면 묶음을 받아 파일을 바꿔치기한다.
+# 실패하면 아무것도 바꾸지 않는다. enabled·.cache 는 건드리지 않는다.
+self_update() {
+  local root new tmp
+  root=$(cd "$DIR/.." && pwd)
+  [ -e "$root/.git" ] && return   # 저장소를 직접 받은 개발용 사본은 덮어쓰지 않는다
+  new=$(curl -fsSL -m 20 "$REL/VERSION") || return
+  case "$new" in '' | *[!0-9.]*) return ;; esac
+  [ "$new" != "$(cat "$root/VERSION" 2>/dev/null)" ] || return
+  tmp=$(mktemp -d "$root/.update.XXXXXX") || return   # 같은 디스크에 풀어야 mv 가 한 번에 바뀐다
+  if curl -fsSL -m 60 "$REL/ai-usage-bar.tar.gz" | tar -xz -C "$tmp" &&
+    [ "$(cat "$tmp/VERSION" 2>/dev/null)" = "$new" ] && [ -x "$tmp/plugins/.baticon" ] &&
+    bash -n "$tmp/plugins/ai-usage.1m.sh" 2>/dev/null; then
+    # mv 는 파일을 통째로 갈아 끼우므로, 지금 실행 중인 이 스크립트가 깨지지 않는다
+    mv -f "$tmp/plugins/.baticon" "$root/plugins/.baticon"
+    mv -f "$tmp/plugins/ai-usage.1m.sh" "$root/plugins/ai-usage.1m.sh"
+    mv -f "$tmp/VERSION" "$root/VERSION"
+  fi
+  rm -rf -- "$tmp"
+}
 
 # 드롭다운 항목이 부르는 경로
 case "$1" in
@@ -30,6 +52,9 @@ toggle) # toggle <서비스>: 체크박스
     if [ "$s" = "$2" ]; then on "$s" || NEW="$NEW $s"; else on "$s" && NEW="$NEW $s"; fi
   done
   echo $NEW > "$CONF"
+  exit ;;
+update) # 시험·수동용: 지금 바로 업데이트 확인
+  ( self_update )
   exit ;;
 force) # 새로고침: 5분 캐시를 지워 다음 실행에서 바로 조회하게 한다 (.wait는 서버가 정한 대기라 남긴다)
   for s in $ALL; do rm -f "$CACHE/$s"; done
@@ -130,3 +155,10 @@ for s in $ALL; do
 done
 echo "---"
 echo "새로고침 | bash=\"$SELF\" param1=force terminal=false refresh=true"
+
+# 하루에 한 번, 화면 출력이 끝난 뒤 뒤에서 업데이트를 확인한다
+if [ -z "$(find "$CACHE/update-check" -mmin -1440 2>/dev/null)" ]; then
+  touch "$CACHE/update-check"
+  ( self_update ) >/dev/null 2>&1 &
+  disown
+fi
