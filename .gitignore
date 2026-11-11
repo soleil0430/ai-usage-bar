@@ -1,0 +1,6 @@
+# 이 맥에만 있는 것: 조회 값·응답 헤더, 켜고 끈 서비스 설정, 컴파일된 도우미, 작업 기록
+.cache/
+enabled
+plugins/.baticon
+SPEC.md
+.DS_Store
