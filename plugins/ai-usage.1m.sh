@@ -64,15 +64,18 @@ esac
 # 공통 조회: 인증 헤더 한 줄을 stdin으로 받는다(토큰이 프로세스 목록에 안 보이게). 응답 헤더는 429 판별용으로 남긴다
 req() { local s=$1; shift; "${AI_USAGE_CURL:-curl}" -sf -m 10 -D "$CACHE/$s.hdr" "$@" -H @-; }   # AI_USAGE_CURL: 시험용 가짜 curl
 
-# fetch_* 출력: 남은 % 한 줄 (한도가 둘이면 "짧은한도 긴한도"). 실패하면 0이 아닌 종료값
+# fetch_* 출력: "남은% 리셋시각" 한 줄 (한도가 둘이면 "짧은한도% 리셋 긴한도% 리셋"). 리셋시각은 유닉스 초, 모르면 0. 실패하면 0이 아닌 종료값
 # 토큰이 비면 요청하지 않는다: 빈 토큰 요청에 Claude 서버가 429와 50분짜리 대기를 돌려주기 때문
+# 리셋 시각을 유닉스 초로: Codex는 숫자, Claude·Cursor는 "2026-11-11T11:10:00.375925+00:00" 같은 글자
+EP='def ep: if type == "number" then floor elif type == "string" then sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601 else 0 end;'
+
 fetch_claude() {
   local t
   t=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty')
   [ -n "$t" ] || return 1
   printf 'Authorization: Bearer %s' "$t" |
     req claude https://api.anthropic.com/api/oauth/usage -H "anthropic-beta: oauth-2025-04-20" |
-    jq -er '"\(100 - .five_hour.utilization | floor) \(100 - .seven_day.utilization | floor)"'
+    jq -er "$EP"'"\(100 - .five_hour.utilization | floor) \(.five_hour.resets_at | ep) \(100 - .seven_day.utilization | floor) \(.seven_day.resets_at | ep)"'
 }
 
 fetch_codex() {
@@ -82,7 +85,7 @@ fetch_codex() {
   [ -n "$t" ] || return 1
   printf 'Authorization: Bearer %s' "$t" |
     req codex https://chatgpt.com/backend-api/wham/usage -H "ChatGPT-Account-Id: $a" -H "User-Agent: codex-cli" |
-    jq -er '.rate_limit | "\(100 - .primary_window.used_percent | floor) \(100 - .secondary_window.used_percent | floor)"'
+    jq -er "$EP"'.rate_limit | "\(100 - .primary_window.used_percent | floor) \(.primary_window.reset_at | ep) \(100 - .secondary_window.used_percent | floor) \(.secondary_window.reset_at | ep)"'
 }
 
 fetch_cursor() {
@@ -95,17 +98,29 @@ fetch_cursor() {
   [ -n "$t" ] && [ -n "$sub" ] || return 1
   printf 'Cookie: WorkosCursorSessionToken=%s%%3A%%3A%s' "$sub" "$t" |
     req cursor https://cursor.com/api/usage-summary |
-    jq -er '"\(100 - .individualUsage.plan.totalPercentUsed | floor)"'
+    jq -er "$EP"'"\(100 - .individualUsage.plan.totalPercentUsed | floor) \(.billingCycleEnd | ep)"'
 }
 
 title() { case $1 in claude) echo Claude ;; codex) echo Codex ;; cursor) echo Cursor ;; esac; }
 icon() { case $1 in claude) echo /Applications/Claude.app ;; codex) echo /Applications/ChatGPT.app ;; cursor) echo /Applications/Cursor.app ;; esac; }
+
+# 드롭다운용 리셋 시각: "15:10 (2시간 13분 후)", 오늘이 아니면 "11/14 18:00 (2일 후)"
+when() {
+  local t=$(($1 - NOW)) f='%H:%M' rel
+  [ "$(date -r "$1" +%F)" = "$(date +%F)" ] || f='%m/%d %H:%M'
+  if [ "$t" -ge 86400 ]; then rel="$((t / 86400))일 $((t % 86400 / 3600))시간"
+  elif [ "$t" -ge 3600 ]; then rel="$((t / 3600))시간 $((t % 3600 / 60))분"
+  else rel="$(((t + 59) / 60))분"; fi
+  rel=${rel% 0시간}; rel=${rel% 0분}   # "1일 0시간" → "1일"
+  echo "$(date -r "$1" "+$f") ($rel 후)"
+}
 
 COUNT=0
 for s in $ALL; do on "$s" && COUNT=$((COUNT + 1)); done
 NOW=$(date +%s)
 
 ARGS=()
+INFO=()   # 드롭다운 맨 위에 보일 서비스별 리셋 시각 줄
 for s in $ALL; do
   on "$s" || continue
   UNTIL=$(cat "$CACHE/$s.wait" 2>/dev/null)
@@ -129,13 +144,21 @@ for s in $ALL; do
     ARGS+=("$(icon "$s")" - clock "$(((UNTIL - NOW + 59) / 60))분")
     continue
   fi
-  read -r P1 P2 <<<"$OUT"
+  P2="" R2=""
+  read -r P1 R1 P2 R2 <<<"$OUT"
+  # 업데이트 직후 남아 있는 옛 형식("남은% 남은%")의 저장 값: 둘째 값이 시각이 아니라 남은 %다
+  if [ -n "$R1" ] && [ "$R1" -lt 1000000000 ]; then P2=$R1 R1=0; fi
   if [ "$COUNT" = 1 ] && [ -n "$P2" ]; then
     # 서비스가 하나뿐이면 자리가 남으니 짧은 한도(시계)와 주간 한도(달력)를 모두 보인다
     ARGS+=("$(icon "$s")" - clock "$P1" calendar "$P2")
   else
     ARGS+=("$(icon "$s")" "$P1")
   fi
+  [ -n "$P2" ] && N1="5시간" || N1="월"   # 한도가 하나뿐인 Cursor는 월 한도
+  LINE=""
+  [ "${R1:-0}" -gt "$NOW" ] && LINE="$N1 $(when "$R1")"
+  [ "${R2:-0}" -gt "$NOW" ] && LINE="${LINE:+$LINE · }주간 $(when "$R2")"
+  [ -n "$LINE" ] && INFO+=("$(title "$s") 리셋  $LINE")
 done
 
 if [ -n "$AI_USAGE_DEBUG" ]; then   # 시험용: 그림 대신 도우미에 넘길 인자를 보인다
@@ -148,6 +171,10 @@ else
   IMG=$("$DIR/.baticon" "${ARGS[@]}"),$("$DIR/.baticon" --white "${ARGS[@]}") && echo "| image=$IMG" || echo "AI ?"
 fi
 echo "---"
+if [ ${#INFO[@]} -gt 0 ]; then
+  printf '%s\n' "${INFO[@]}"
+  echo "---"
+fi
 echo "표시할 서비스"
 for s in $ALL; do
   on "$s" && C=true || C=false
