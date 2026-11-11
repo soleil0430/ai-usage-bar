@@ -1,7 +1,7 @@
 #!/bin/bash
 # AI 서비스(Claude·Codex·Cursor) 구독 한도 잔여량을 메뉴바에 배터리 아이콘으로 표시
 # SwiftBar 플러그인. 파일명의 1m = 1분마다 다시 그림(대기 시간 카운트다운용). 실제 조회는 서비스당 5분에 한 번.
-# shortcut: 셋 다 비공식 조회 주소이고 토큰 갱신은 안 함. 배터리에 "?"가 뜨면 해당 도구를 한 번 실행(토큰 갱신)하거나, 응답 형식이 바뀐 것이니 그 서비스의 jq 식을 고칠 것.
+# shortcut: 셋 다 비공식 조회 주소이고 토큰 갱신은 Claude만 함. 로딩 아이콘이 계속 뜨면 드롭다운의 이유를 보고, 해당 도구를 한 번 실행(토큰 갱신)하거나 응답 형식이 바뀐 것이니 그 서비스의 jq 식을 고칠 것.
 #
 # 드롭다운에서 SwiftBar 기본 항목을 숨긴다
 # <swiftbar.hideAbout>true</swiftbar.hideAbout>
@@ -69,10 +69,26 @@ req() { local s=$1; shift; "${AI_USAGE_CURL:-curl}" -sf -m 10 -D "$CACHE/$s.hdr"
 # 리셋 시각을 유닉스 초로: Codex는 숫자, Claude·Cursor는 "2026-11-11T11:10:00.375925+00:00" 같은 글자
 EP='def ep: if type == "number" then floor elif type == "string" then sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601 else 0 end;'
 
+KC="Claude Code-credentials"
+# Claude 접근 토큰을 출력한다. 만료된 토큰으로 조회하면 401 뒤에 1시간짜리 429가 오므로, 만료 5분 전이면 먼저 갱신한다.
+# 갱신은 Claude Code에 맡긴다: 아주 짧은 질문 한 번이면 Claude Code가 토큰을 새로 받아 키체인에 저장한다.
+# (갱신 주소에 직접 요청하면 서버가 429로 막는다.) 갱신해도 만료 상태면 종료값 2
+claude_token() {
+  local c b q='$ENV.C | fromjson | .claudeAiOauth' fresh='.expiresAt / 1000 > now + 300'
+  c=$(security find-generic-password -s "$KC" -w 2>/dev/null) || return 2
+  if ! C=$c jq -ne "$q | $fresh" >/dev/null; then
+    for b in $AI_USAGE_CLAUDE "$HOME/.local/bin/claude" /opt/homebrew/bin/claude /usr/local/bin/claude; do [ -x "$b" ] && break; done   # AI_USAGE_CLAUDE: 시험용
+    # 60초 넘게 걸리면 끊는다(바가 멈추지 않게)
+    (cd "$CACHE" && perl -e "alarm 60; exec @ARGV" "$b" -p ok --model haiku --tools "" --no-session-persistence) >/dev/null 2>&1 </dev/null
+    c=$(security find-generic-password -s "$KC" -w 2>/dev/null)
+    C=$c jq -ne "$q | $fresh" >/dev/null || return 2
+  fi
+  C=$c jq -nr "$q.accessToken"
+}
+
 fetch_claude() {
   local t
-  t=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty')
-  [ -n "$t" ] || return 1
+  t=$(claude_token) || return
   printf 'Authorization: Bearer %s' "$t" |
     req claude https://api.anthropic.com/api/oauth/usage -H "anthropic-beta: oauth-2025-04-20" |
     jq -er "$EP"'"\(100 - .five_hour.utilization | floor) \(.five_hour.resets_at | ep) \(100 - .seven_day.utilization | floor) \(.seven_day.resets_at | ep)"'
@@ -128,7 +144,7 @@ for s in $ALL; do
   if [ "$NOW" -ge "$UNTIL" ]; then
     if [ -n "$(find "$CACHE/$s" -mmin -5 2>/dev/null)" ]; then
       OUT=$(cat "$CACHE/$s")   # 5분 안에 조회한 값이 있으면 다시 묻지 않는다
-    elif : > "$CACHE/$s.hdr"; OUT=$("fetch_$s"); then
+    elif : > "$CACHE/$s.hdr"; OUT=$("fetch_$s"); RC=$?; [ "$RC" = 0 ]; then
       echo "$OUT" > "$CACHE/$s"
     elif grep -q '^HTTP/[0-9.]* 429' "$CACHE/$s.hdr" 2>/dev/null; then
       # 서버가 "요청 과다, N초 뒤 다시"라고 한 경우: 그때까지 조회를 멈추고 남은 시간을 보인다
@@ -137,13 +153,19 @@ for s in $ALL; do
       UNTIL=$((NOW + RA))
       echo "$UNTIL" > "$CACHE/$s.wait"
     else
-      OUT="?"
+      OUT="!$RC"
     fi
   fi
   if [ "$NOW" -lt "$UNTIL" ]; then
     ARGS+=("$(icon "$s")" - clock "$(((UNTIL - NOW + 59) / 60))분")
     continue
   fi
+  case $OUT in "!"*)   # 조회 실패: 배터리 자리에 로딩 모양, 이유는 드롭다운에 (매분 다시 시도)
+    ARGS+=("$(icon "$s")" - arrow.triangle.2.circlepath -)
+    if [ "$OUT" = "!2" ]; then INFO+=("$(title "$s") 토큰 갱신 실패 — 터미널에서 claude 를 한 번 실행하세요")
+    else INFO+=("$(title "$s") 조회 실패 — 1분마다 다시 시도합니다"); fi
+    continue ;;
+  esac
   P2="" R2=""
   read -r P1 R1 P2 R2 <<<"$OUT"
   # 업데이트 직후 남아 있는 옛 형식("남은% 남은%")의 저장 값: 둘째 값이 시각이 아니라 남은 %다
